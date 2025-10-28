@@ -1,0 +1,12 @@
+| Device                   | Recommended settings                               |
+| ------------------------ | -------------------------------------------------- |
+| Raspberry Pi 4 (4 cores) | `intra_op_num_threads=2`, `inter_op_num_threads=1` |
+| Intel Atom x5/x7         | `intra_op_num_threads=2`, `inter_op_num_threads=1` |
+| Orange Pi 5 / RK3588     | `intra_op_num_threads=4`, `inter_op_num_threads=1` |
+| Very small 2-core chip   | `intra_op_num_threads=1`, `inter_op_num_threads=1` |
+
+
+
+
+Use OpenVINO (Intel CPUs only)
+If you’re on an Intel CPU and no GPU, using the OpenVINO Execution Provider can double or triple performance without changing accuracy.
