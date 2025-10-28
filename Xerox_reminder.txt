@@ -10,3 +10,6 @@
 
 Use OpenVINO (Intel CPUs only)
 If you’re on an Intel CPU and no GPU, using the OpenVINO Execution Provider can double or triple performance without changing accuracy.
+
+a very usefull web blog for segmentation
+https://dev.to/andreygermanov/how-to-create-yolov8-based-object-detection-web-service-using-python-julia-nodejs-javascript-go-and-rust-4o8e#process_the_output
