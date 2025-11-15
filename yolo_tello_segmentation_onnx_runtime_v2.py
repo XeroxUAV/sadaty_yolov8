@@ -129,8 +129,8 @@ def preprocess_frame(frame):
 # ---------------- Window Detector ----------------
 class WindowDetector:
     def __init__(self, model_path=r"C:\softwares\yolov8_env64\runs\segment\window_segmentation_model8\weights\best.onnx",
-                 conf_thresh=0.6):
-        self.kf = KalmanFilter()
+                 conf_thresh=0.92):
+        # self.kf = KalmanFilter()
         self.alpha = 0.2
         self.smoothed_center = None
         self.no_detection_start_time = None
@@ -150,9 +150,7 @@ class WindowDetector:
         self.search_yaw_speed = 20  # yaw speed for search mode (adjust 20–40)
         self.device = "cpu"
         print("[INFO] YOLO model loaded.")
-        print("loaded on:" , self.device)
-        fps = self.fps_tracker.update()
-        print(f"[INFO] FPS: {fps:.2f}")
+
 
 
     def perform_search(self, tello):
@@ -216,13 +214,12 @@ class WindowDetector:
             pid_throttle.prev_error = 0
             tello.send_rc_control(0, 2, 0, 0)
             return frame
-        fps_tracker = FPSTracker()
-        input_size = 480
-        mask_res = 120
+        input_size = 704
+        mask_res = 176
 
 
         frame_h, frame_w = frame.shape[:2]
-        VERTICAL_OFFSET = -100
+        VERTICAL_OFFSET = -145
         frame_center = (frame_w // 2, frame_h // 2 + VERTICAL_OFFSET)
         cv2.circle(frame, (frame_center[0], frame_center[1]), 8 , (0, 255, 255), 2)
         img_height, img_width = frame.shape[:2]
@@ -244,7 +241,7 @@ class WindowDetector:
         output1 = output1[0].reshape(32, mask_res*mask_res)
         t2 = time.time()
 
-        conf_mask = output0[:, 4] > 0.3
+        conf_mask = output0[:, 4] > 0.6
         output0 = output0[conf_mask]
         output0 = output0[:200]
         boxes = output0[:, :5]
@@ -252,7 +249,10 @@ class WindowDetector:
         boxes = np.hstack([boxes, masks])
         t3 = time.time()
 
-        objects = []
+        # --- Use only the single largest detected mask ---
+        best_area = 0
+        best_obj = None
+
         for row in boxes:
             xc, yc, w, h = row[:4]
             x1 = (xc - w / 2) / input_size * img_width
@@ -262,13 +262,25 @@ class WindowDetector:
             prob = row[4].max()
             if prob < 0.7:
                 continue
-            mask_vector = row[5:]  # all mask elements
+
+            mask_vector = row[5:]
             mask = get_mask(mask_vector, (x1, y1, x2, y2), img_width, img_height)
             if mask is None:
-                continue  # skip invalid mask
+                continue
 
-            polygon = get_polygon(mask)
-            objects.append([x1, y1, x2, y2, self.yolo_classes[0], prob, polygon])
+            # find contour area for mask
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if len(contours) == 0:
+                continue
+            area = max(cv2.contourArea(c) for c in contours)
+            if area > best_area:
+                polygon = get_polygon(mask)
+                best_area = area
+                best_obj = [x1, y1, x2, y2, self.yolo_classes[0], prob, polygon]
+
+        # Replace "objects" list with only the best one
+        objects = [best_obj] if best_obj is not None else []
+
         t4 = time.time()
 
         # ---------------- Draw ----------------
@@ -303,8 +315,9 @@ class WindowDetector:
 
             # Skip zero-area or invalid boxes
             if x2 <= x1 or y2 <= y1:
-                print(f"[WARNING] Invalid box skipped: ({x1},{y1})–({x2},{y2})")
+                # print(f"[WARNING] Invalid box skipped: ({x1},{y1})–({x2},{y2})")
                 continue
+
 
             # Merge cropped mask into full-frame mask safely
             try:
@@ -313,13 +326,14 @@ class WindowDetector:
                 full_mask_bool = full_mask.astype(bool)
 
             except ValueError as e:
-                print(f"[ERROR] Mask merge failed at ({x1},{y1},{x2},{y2}): {e}")
+                # print(f"[ERROR] Mask merge failed at ({x1},{y1},{x2},{y2}): {e}")
                 continue
 
         # Show final full-frame mask
-        cv2.imshow("Full Frame Mask", full_mask)
+        # cv2.imshow("Full Frame Mask", full_mask)
         total_end = time.time()
-
+        fps = self.fps_tracker.update()
+        print("[INFO] FPS: {:.2f}".format(fps))
         # print("mask type:", type(full_mask_bool))
         # print("mask shape:", full_mask_bool.shape)
         # print("mask dtype:", full_mask_bool.dtype)
@@ -379,7 +393,7 @@ class WindowDetector:
                 if self.smoothed_center is None:
                     self.smoothed_center = (x_center, y_center)
                 else:
-                    alpha = 0.2  # smoothing factor (0 < alpha <= 1)
+                    alpha = 0.75  # smoothing factor (0 < alpha <= 1)
                     sm_x = int(self.smoothed_center[0] * (1 - alpha) + x_center * alpha)
                     sm_y = int(self.smoothed_center[1] * (1 - alpha) + y_center * alpha)
                     self.smoothed_center = (sm_x, sm_y)
@@ -389,9 +403,9 @@ class WindowDetector:
                 # --- DRAW ---
                 cv2.drawContours(frame_draw, [approx_poly], 0, (0, 255, 0), 2)
                 cv2.circle(frame, (cX, cY), 8, (0, 255, 0), -1)
-                cv2.putText(frame, f"Center: ({cX}, {cY})",
-                            (cX + 10, cY - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                # cv2.putText(frame, f"Center: ({cX}, {cY})",
+                #             (cX + 10, cY - 10),
+                #             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             def order_corners_clockwise(approx_poly):
                 pts = approx_poly.reshape(-1, 2).astype(np.float32)
@@ -412,10 +426,11 @@ class WindowDetector:
                 # bottom_len = np.linalg.norm(bottom_left - bottom_right)
                 avg_side = max((left_len + right_len) * 0.5, 1.0)
                 yaw_error = (right_len - left_len) / avg_side
+                # print("yaw_error", yaw_error)
                 if not hasattr(self, "smoothed_yaw_error"):
                     self.smoothed_yaw_error = yaw_error
                 else:
-                    self.smoothed_yaw_error = 0.8 * self.smoothed_yaw_error + 0.2 * yaw_error  # EMA smoothing
+                    self.smoothed_yaw_error = 0.6 * self.smoothed_yaw_error + 0.4 * yaw_error  # EMA smoothing
 
                 yaw_error = self.smoothed_yaw_error
 
@@ -442,7 +457,7 @@ class WindowDetector:
             #             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
             cv2.circle(frame_draw, (cX, cY), 8, (0, 255, 0), -1)
-            CENTER_THRESHOLD_X = 13
+            CENTER_THRESHOLD_X = 9
             CENTER_THRESHOLD_Y = 10
             YAW_THRESHOLD = 0.05
             centered_horizontally = abs(error_x) < CENTER_THRESHOLD_X
@@ -452,6 +467,7 @@ class WindowDetector:
             if centered_horizontally and centered_vertically and yaw_center and not self.forward_done:
                 self.forward_done = True
                 tello.send_rc_control(0, 0, 0, 0)
+                print("area: ", best_area)
                 time.sleep(0.3)
                 if best_area > 200000:
                     forward_time = 6.5
@@ -469,6 +485,7 @@ class WindowDetector:
                     forward_time = 17.5
                 else:
                     forward_time = 8
+                print("forward time is :", forward_time)
                 pid_yaw.integral = pid_yaw.prev_error = 0
                 pid_roll.integral = pid_roll.prev_error = 0
                 pid_throttle.integral = pid_throttle.prev_error = 0
@@ -496,9 +513,10 @@ class WindowDetector:
                 self.searching = True
                 return frame_draw
             ### all numbers can be tuned for yaw,throttle and roll speeds
-            yaw_speed = int(np.clip(pid_yaw.update(yaw_error * 300), -40, 40)) if abs(yaw_error) > 0.006 else 0
+            yaw_speed = int(np.clip(pid_yaw.update(yaw_error * 600), -40, 40)) if abs(yaw_error) > 0.006 else 0
             print("yaw_speed:", yaw_speed)
-            print("yaw_error:", yaw_error)
+            print("\n")
+            print("yaw_error:", yaw_error,"\n")
 
             throttle = int(np.clip(pid_throttle.update(-error_y), -30, 30)) if abs(error_y) > 7 else 0
             print("error_y" , error_y)
@@ -526,24 +544,41 @@ class WindowDetector:
                 yaw_speed = int(yaw_speed * 0.7)
                 roll_speed = int(roll_speed * 0.7)
                 # ---- Forward/backward compensation ----
-            forward_comp = int(0.3 * abs(yaw_speed) + 0.35 * abs(roll_speed))  ###Tune these two numbers
-            forward_backward_speed = -forward_comp if (abs(yaw_speed) > 0 or abs(roll_speed) > 0) else 0
+            # forward_comp = int(0.3 * abs(yaw_speed) + 0.35 * abs(roll_speed))  ###Tune these two numbers
+            # forward_backward_speed = -forward_comp if (abs(yaw_speed) > 0 or abs(roll_speed) > 0) else 0
             # --- Damp roll while yaw is not aligned ---
-            yaw_alignment_factor = max(0.0, 1.0 - abs(yaw_error) * 7)  # tune 6–10
+            yaw_alignment_factor = max(0.0, 1.0 - (abs(yaw_error) * 9))  # tune 6–10
             if roll_speed > 10:
                 roll_speed = 10
             elif roll_speed < -10:
                 roll_speed = -10
             roll_speed = int(roll_speed * yaw_alignment_factor)
+            print(f"roll_speed: {roll_speed}")
+            # error_ori = 0
+            # same_sgn = False
+            # if roll_speed > 0 and yaw_error > 0:
+            #     same_sgn = True
+            # if yaw_error > 0.13 and same_sgn:
+            #     error_ori = 1
+            # elif yaw_error < -0.13 and same_sgn:
+            #     error_ori = -1
+            #
+            # if error_ori == 1:
+            #     tello.send_rc_control(-5, 0, 0,5)
+            # elif error_ori == -1:
+            #     tello.send_rc_control(+5, 0, 0,-5)
+            # else:
+            #     tello.send_rc_control(roll_speed, forward_backward_speed, throttle, yaw_speed)
 
             tello.send_rc_control(roll_speed, forward_backward_speed, throttle, yaw_speed)
-            # try:
-            #     print(roll_speed, forward_backward_speed, throttle, yaw_speed)
-            # except:
-            #     print("_")
-            predicted = self.kf.predict()
-            predicted = (int(predicted[0]), int(predicted[1]))
-            cv2.circle(frame_draw, predicted, 5, (255, 0, 0), 4)
+
+            try:
+                print(roll_speed, forward_backward_speed, throttle, yaw_speed)
+            except:
+                print("_")
+            # predicted = self.kf.predict()
+            # predicted = (int(predicted[0]), int(predicted[1]))
+            # cv2.circle(frame_draw, predicted, 5, (255, 0, 0), 4)
         else:
             if self.no_detection_start_time is None:
                 self.no_detection_start_time = time.time()
@@ -563,23 +598,21 @@ class DroneController:
         self.tello = Tello()
         self.tello.connect()
         self.tello.streamon()
-        # self.tello.takeoff()
+        self.tello.takeoff()
         print("[INFO] Battery:", self.tello.get_battery())
         self.tello.send_rc_control(0, 0, 30, 0)
-        time.sleep(3)
+        time.sleep(7)
         self.tello.send_rc_control(0, 0, 0, 0)
         time.sleep(0.5)
         self.pid_yaw = PID(Kp=0.2, Ki=0.01, Kd=0.05)
         self.pid_throttle = PID(Kp=0.35, Ki=0.01, Kd=0.18)
-        self.pid_roll = PID(Kp=0.22, Ki=0.002, Kd=0.03)
+        self.pid_roll = PID(Kp=0.24, Ki=0.002, Kd=0.03)
         self.pid_forward = PID(Kp=0.002, Ki=0.0001, Kd=0.005)
         self.detector = WindowDetector()
 
     def run(self):
         try:
-            fps_tracker = FPSTracker()
-            input_size = 480
-            mask_res = 120
+
             while True:
                 frame = self.tello.get_frame_read().frame
                 if keyboard.is_pressed('e'):
