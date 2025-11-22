@@ -216,8 +216,8 @@ class WindowDetector:
             pid_throttle.prev_error = 0
             tello.send_rc_control(0, 2, 0, 0)
             return frame
-        input_size = 704
-        mask_res = 176
+        input_size = 736
+        mask_res = 184
 
 
         frame_h, frame_w = frame.shape[:2]
@@ -553,10 +553,10 @@ class WindowDetector:
                 yaw_speed = int(yaw_speed * 0.7)
                 roll_speed = int(roll_speed * 0.7)
                 # ---- Forward/backward compensation ----
-            forward_comp = int(0.10 * abs(yaw_speed) + 0.20 * abs(roll_speed))  ###Tune these two numbers
+            forward_comp = int(0.15 * abs(yaw_speed) + 0.22 * abs(roll_speed))  ###Tune these two numbers
             forward_backward_speed = -forward_comp if (abs(yaw_speed) > 2 and abs(roll_speed) > 2) else 0
             # --- Damp roll while yaw is not aligned ---
-            yaw_alignment_factor = max(0.0, 1.0 - (abs(yaw_error) * 9))  # tune 6–10
+            yaw_alignment_factor = max(0.0, 1.0 - (abs(yaw_error) * 8))  # tune 6–10
             if roll_speed > 10:
                 roll_speed = 10
             elif roll_speed < -10:
@@ -607,7 +607,7 @@ class DroneController:
         self.tello = Tello()
         self.tello.connect()
         self.tello.streamon()
-        # self.tello.takeoff()
+        self.tello.takeoff()
         print("[INFO] Battery:", self.tello.get_battery())
         self.tello.send_rc_control(0, 0, 30, 0)
         time.sleep(7)
