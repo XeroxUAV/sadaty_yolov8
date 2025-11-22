@@ -13,17 +13,17 @@
 
 from ultralytics import YOLO
 
-from f2dummy2 import simplify
 
 model = YOLO(r"C:\softwares\yolov8_env64\runs\segment\window_segmentation_model8\weights\best.pt")
 
 model.export(
     format="onnx",
-    imgsz=480,           # keep full input resolution
+    imgsz=736,           # keep full input resolution
     opset = 17,
     dynamic= False,         # allows flexible image sizes
     simplify= True,       # keeps full computation graph (better precision)
-    half= False
+    half= False,
+    task = "segment"
 
 )
 
